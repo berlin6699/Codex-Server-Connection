@@ -2,7 +2,7 @@
 
 在 Windows 本机运行 ChatGPT/Codex 桌面端，同时把项目和命令运行在 SSH 服务器上的一套可复用方案。它也说明了如何在服务器没有直接代理出口时，经由本机的 Mihomo/Clash 提供临时网络代理，并避免与 Codex 桌面端的 SSH 连接冲突。
 
-> 本文以 HKUST(GZ) HPC 登录节点为例；主机名、用户名、私钥路径和端口请按自己的环境替换。
+> 本文使用通用远程开发服务器示例；主机名、用户名、私钥路径和端口请按自己的环境替换。
 
 ## 原理
 
@@ -36,7 +36,7 @@ remote port forwarding failed for listen port 27897
 - 服务器已安装并登录 Codex；检查命令：
 
   ```powershell
-  ssh HPC3-HKUSTGZ-Codex "command -v codex && codex --version"
+  ssh Remote-Codex "command -v codex && codex --version"
   ```
 
 - 使用最新版 ChatGPT 桌面端，并具有 Codex 使用权限。
@@ -47,8 +47,8 @@ remote port forwarding failed for listen port 27897
 
 ```sshconfig
 # 只给服务器提供本机代理；在单独终端中保持运行。
-Host HPC3-HKUSTGZ-Proxy
-  HostName hpc3login.hpc.hkust-gz.edu.cn
+Host Remote-Proxy
+  HostName server.example.edu
   User <你的服务器用户名>
   IdentityFile C:/Users/<你的 Windows 用户名>/.ssh/id_ed25519
   RemoteForward 127.0.0.1:27897 127.0.0.1:7897
@@ -57,20 +57,20 @@ Host HPC3-HKUSTGZ-Proxy
   ServerAliveCountMax 3
 
 # 只给 ChatGPT/Codex 桌面端使用：绝不能包含 RemoteForward。
-Host HPC3-HKUSTGZ-Codex
-  HostName hpc3login.hpc.hkust-gz.edu.cn
+Host Remote-Codex
+  HostName server.example.edu
   User <你的服务器用户名>
   IdentityFile C:/Users/<你的 Windows 用户名>/.ssh/id_ed25519
   ServerAliveInterval 30
   ServerAliveCountMax 3
 ```
 
-若你已有旧别名（例如 `HPC3-HKUSTGZ`）带有 `RemoteForward`，可以保留它作为代理用途；务必在桌面端选择新的 `HPC3-HKUSTGZ-Codex`，而不是旧别名。
+若你已有旧别名（例如 `Remote-Proxy`）带有 `RemoteForward`，可以保留它作为代理用途；务必在桌面端选择新的 `Remote-Codex`，而不是旧别名。
 
 确认 Codex 专用别名没有携带转发：
 
 ```powershell
-ssh -G HPC3-HKUSTGZ-Codex | Select-String '^(hostname|user|remoteforward|exitonforwardfailure) '
+ssh -G Remote-Codex | Select-String '^(hostname|user|remoteforward|exitonforwardfailure) '
 ```
 
 输出不应包含 `remoteforward`。
@@ -80,7 +80,7 @@ ssh -G HPC3-HKUSTGZ-Codex | Select-String '^(hostname|user|remoteforward|exitonf
 先启动 Mihomo/Clash，然后在一个单独的 PowerShell 窗口运行：
 
 ```powershell
-ssh -N HPC3-HKUSTGZ-Proxy
+ssh -N Remote-Proxy
 ```
 
 `-N` 表示只建立隧道、不启动远端 Shell。保持这个窗口打开；关闭窗口或按 `Ctrl+C` 即会停止代理隧道。
@@ -108,7 +108,7 @@ curl -I --connect-timeout 10 https://api.openai.com
 
 1. 完全退出并重新打开 ChatGPT 桌面端。
 2. 打开 **Settings → Connections → SSH**。
-3. 添加或启用 `HPC3-HKUSTGZ-Codex`。
+3. 添加或启用 `Remote-Codex`。
 4. 选择服务器上的项目目录，或将同一 Git 仓库的对话 hand off 到该主机。
 
 桌面端会通过 SSH 启动远端 Codex App Server；文件读取、命令运行和改动都会发生在服务器，而界面和审批仍在本机。官方要求远端登录 Shell 能在 `PATH` 中找到 `codex`。[OpenAI 文档：Remote connections](https://learn.chatgpt.com/docs/remote-connections)
@@ -116,9 +116,9 @@ curl -I --connect-timeout 10 https://api.openai.com
 ## 4. 日常使用顺序
 
 1. 启动本机 Mihomo/Clash。
-2. 如果服务器需借用本机代理，在单独窗口运行 `ssh -N HPC3-HKUSTGZ-Proxy`。
+2. 如果服务器需借用本机代理，在单独窗口运行 `ssh -N Remote-Proxy`。
 3. 确认远端的代理环境变量已设置，或确认服务器可以直接联网。
-4. 打开 ChatGPT 桌面端，始终选 `HPC3-HKUSTGZ-Codex`。
+4. 打开 ChatGPT 桌面端，始终选 `Remote-Codex`。
 5. 结束工作后按需关闭代理隧道；不要把带代理转发的别名选为 Codex 主机。
 
 ## 排障
@@ -130,7 +130,7 @@ curl -I --connect-timeout 10 https://api.openai.com
 使用无转发别名检查监听状态：
 
 ```powershell
-ssh HPC3-HKUSTGZ-Codex "netstat -ltn 2>/dev/null | grep ':27897 ' || true"
+ssh Remote-Codex "netstat -ltn 2>/dev/null | grep ':27897 ' || true"
 ```
 
 - 有 `LISTEN`：旧代理隧道正在占用端口；Codex 桌面端必须改用无转发别名。
@@ -138,16 +138,16 @@ ssh HPC3-HKUSTGZ-Codex "netstat -ltn 2>/dev/null | grep ':27897 ' || true"
 
 ### 手动 `ssh` 也报 27897 错误
 
-说明你使用的 Host 别名本身含有 `RemoteForward`；这是 SSH 配置自动应用的结果。改用 `HPC3-HKUSTGZ-Codex`，或临时忽略转发：
+说明你使用的 Host 别名本身含有 `RemoteForward`；这是 SSH 配置自动应用的结果。改用 `Remote-Codex`，或临时忽略转发：
 
 ```powershell
-ssh -o ClearAllForwardings=yes HPC3-HKUSTGZ-Proxy
+ssh -o ClearAllForwardings=yes Remote-Proxy
 ```
 
 ### 桌面端找不到或无法启动远端 Codex
 
 ```powershell
-ssh HPC3-HKUSTGZ-Codex "command -v codex && codex --version"
+ssh Remote-Codex "command -v codex && codex --version"
 ```
 
 若找不到命令，确保 `codex` 已安装，且安装目录在远端**登录 Shell**的 `PATH` 中。若桌面端刚更新或刚修改 SSH 配置，重启桌面端后再添加该 Host。
@@ -155,7 +155,7 @@ ssh HPC3-HKUSTGZ-Codex "command -v codex && codex --version"
 ## 安全注意事项
 
 - `127.0.0.1` 只让代理端口监听在服务器回环地址，绝不要改成 `0.0.0.0` 或公开暴露 Codex App Server。
-- HPC 登录节点是共享环境；同节点的其他本地进程理论上可能尝试访问回环端口。仅在必要时开启隧道，遵守集群政策，并使用受认证、受信任的本地代理。
+- 共享登录节点中，同节点的其他本地进程理论上可能尝试访问回环端口。仅在必要时开启隧道，遵守服务器政策，并使用受认证、受信任的本地代理。
 - 不要把 API Key、`auth.json`、私钥、代理订阅链接或任何密码提交到此仓库。
 - 使用最小权限的 SSH 账户和受信任的私钥；用完代理隧道及时关闭。
 
