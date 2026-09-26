@@ -144,6 +144,37 @@ ssh Remote-Codex "netstat -ltn 2>/dev/null | grep ':27897 ' || true"
 ssh -o ClearAllForwardings=yes Remote-Proxy
 ```
 
+### 系统代理模式能连，TUN/虚拟网卡模式不能连
+
+这通常是本机 TUN 的 DNS 或分流路径问题，与服务器端代理隧道 `Remote-Proxy`、远端 Codex 安装和 `RemoteForward` 端口冲突是不同问题。Codex 专用 SSH Host 仍应保持不含 `RemoteForward`。
+
+启用 Mihomo/Clash 的 TUN 时，DNS 查询可能被接管；`fake-ip` 会对未排除的域名返回虚拟地址。若 SSH 主机名依赖校园网、公司网或 VPN 的分流 DNS，而 Mihomo 只使用公网 DNS，主机名可能被解析成虚拟地址或得到 NXDOMAIN。此时 SSH 会在认证前失败。仅看到 `198.18.0.0/16` 的地址还不能证明配置错误；应确认 Mihomo 能否为该域名取得真实地址，以及实际命中了哪条路由规则。
+
+若主机应走内网直连，在 Mihomo 的 DNS 配置中仅为该 SSH 主机名排除 fake-IP，并指定能解析它的内网 DNS：
+
+```yaml
+dns:
+  fake-ip-filter:
+    # 保留现有条目，并加入准确的 SSH 主机名。
+    - server.example.edu
+  nameserver-policy:
+    'server.example.edu':
+      # 替换成当前校园网、公司网或 VPN 实际提供的 DNS 地址。
+      - 10.0.0.53
+      - 10.0.0.54
+```
+
+不要把示例 DNS 地址照抄；先确认它们能解析该主机。不要为解决这个问题把 `RemoteForward` 加到 Codex Host，也不必删除通用的 `.edu.cn` 直连规则：直连规则只有在 DNS 能返回真实服务器地址时才能工作。Mihomo 的 `fake-ip-filter` 可排除指定域名的虚拟地址映射，`nameserver-policy` 可为域名指定解析器。如果另外配置了 `direct-nameserver`，还要设置 `direct-nameserver-follow-policy: true`，确保直连解析遵循域名策略；未配置 `direct-nameserver` 时可省略。[Mihomo DNS 配置](https://wiki.metacubex.one/config/dns/)、[DNS 解析流程](https://wiki.metacubex.one/config/dns/diagram/)
+
+修改后重载 Mihomo 并清理 DNS/Fake-IP 缓存，再验证：
+
+```powershell
+Resolve-DnsName server.example.edu -Type A
+ssh -vvv Remote-Codex
+```
+
+第一条命令应返回真实服务器地址，而不是 Fake-IP 网段中的地址；SSH 调试应收到服务器的 SSH 版本标识并通过密钥认证。若 `Resolve-DnsName` 没有真实地址，先检查 TUN 使用的 DNS 是否可达、是否能解析该主机，再检查域名命中的路由规则。
+
 ### 桌面端找不到或无法启动远端 Codex
 
 ```powershell
